@@ -24,7 +24,14 @@ print ("------------------------------------------------------------------------
 print ("Importações - OK")
 
 import pandas as pd
-#import missingno as msno
+import matplotlib.pyplot as plt
+import numpy as np
+plt.style.use('ggplot')
+
+#analise dos dados
+from pandas_profiling import ProfileReport
+
+#from sklearn.cluster import KMeans
 from sklearn.neighbors import NearestNeighbors
 
 
@@ -42,8 +49,26 @@ mercado_codenation = pd.read_csv('E:/codenation/dados/estaticos_market.csv/estat
 #filtrando só o que nos interessa para fazer o merge depois - apenas esta tem os dados completos
 portfolio1_codenation = portfolio1_codenation.filter(['id'])
 
+#MERGE
+print ("--------------------------------------------------------------------------")
+print ("Recupera o ID de cada linha das tabelas porfolios para realizarmos em seguida o MERGE - OK")
+
+portfolio_empresa1 = portfolio1_codenation['id']
+portfolio_empresa2 = portfolio2_codenation['id']
+portfolio_empresa3 = portfolio3_codenation['id']
+
+#salvando as tabelas pra eu comparar:
+COMP_portfolio_empresa1 = pd.merge(portfolio1_codenation, mercado_codenation, on='id')
+COMP_portfolio_empresa2 = pd.merge(portfolio2_codenation, mercado_codenation, on='id')
+COMP_portfolio_empresa3 = pd.merge(portfolio3_codenation, mercado_codenation, on='id')
+
+
 #retirei primeiro as colunas que não tem a menor lógica com o que buscamos. Fiz manualmente
 #retiramos algumas colunas onde já existem outras colunas que foram desmembradas em categorias como: nu_meses_rescencia','idade_empresa_anos
+
+#analise dos dados
+#profile = ProfileReport(mercado_codenation, title='Leads')
+#profile.to_file("your_report2geral.html")
 
 
 mercado_codenation.drop(columns=[
@@ -119,6 +144,18 @@ print (mercado_codenation_filtro1.dtypes.unique().size)
 print (mercado_codenation_filtro1.dtypes.unique())
 print (mercado_codenation_filtro1.dtypes)
 
+#https://www.linkedin.com/pulse/machine-learning-marketing-como-aumentar-efici%C3%AAncia-do-gouveia-rocha/
+#print ("--------------------------------------------------------------------------")
+#print ("Verificando a correlação entre os campos: .corr()/ - OK")
+
+#Using Pearson Correlation
+#plt.figure(figsize=(12,10))
+#cor = mercado_codenation_filtro1.corr()
+#sns.heatmap(cor, annot=True, cmap=plt.cm.Reds)
+#plt.show()
+
+
+
 
 
 #transformando com getdummies os dados texto em numerico
@@ -143,13 +180,7 @@ texto_data_summary.remove('id')
 mercado_codenation_filtro1 = pd.concat([pd.get_dummies(mercado_codenation_filtro1, columns=texto_data_summary)],axis=1)
 
 
-#MERGE
-print ("--------------------------------------------------------------------------")
-print ("Recupera o ID de cada linha das tabelas porfolios para realizarmos em seguida o MERGE - OK")
-
-portfolio_empresa1 = portfolio1_codenation['id']
-portfolio_empresa2 = portfolio2_codenation['id']
-portfolio_empresa3 = portfolio3_codenation['id']
+#merge já com dummies
 
 #complemento dos dados-------------------------------------------------------------------------------
 #complementa dados das tabelas de portfolio a partir da tabela de mercado usando para isso o campo ID
@@ -158,6 +189,11 @@ print ("Complementa os dados das empresas de portfolio - Faz um merge pelo ID - 
 portfolio_empresa1 = pd.merge(portfolio_empresa1, mercado_codenation_filtro1, on='id')
 portfolio_empresa2 = pd.merge(portfolio_empresa2, mercado_codenation_filtro1, on='id')
 portfolio_empresa3 = pd.merge(portfolio_empresa3, mercado_codenation_filtro1, on='id')
+
+
+
+
+
 
 #confere se ficaram idêntica no número de colunas
 print ("--------------------------------------------------------------------------")
@@ -168,15 +204,6 @@ print (portfolio_empresa3.shape)
 print (mercado_codenation_filtro1.shape)
 
 
-#https://www.linkedin.com/pulse/machine-learning-marketing-como-aumentar-efici%C3%AAncia-do-gouveia-rocha/
-print ("--------------------------------------------------------------------------")
-print ("Verificando a correlação entre os campos: .corr()/ - OK")
-
-#Using Pearson Correlation
-plt.figure(figsize=(12,10))
-cor = mercado_codenation_filtro1.corr()
-sns.heatmap(cor, annot=True, cmap=plt.cm.Reds)
-plt.show()
 
 
 print ("--------------------------------------------------------------------------")
@@ -194,8 +221,54 @@ nearest = NearestNeighbors(n_neighbors=qtd_neighbors,metric = 'cosine')
 
 nearest.fit(mercado_codenation_filtro1)
 
-
 print(nearest)
+
+#procurando por sugestões
+print ("--------------------------------------------------------------------------")
+print ("Procurando por sugestoes - OK")
+
+
+neighbors_list = {}
+
+for row in range(portfolio_empresa3.shape[0]):
+    print(row)
+    neighbors_list[row] = nearest.kneighbors(portfolio_empresa3.iloc[[row]].values)
+    
+list_size = len(neighbors_list)
+num_neighbors = len(neighbors_list[0][1][0])
+
+neighbors_idx_array = neighbors_list[0][1][0]
+neighbors_distance_array = neighbors_list[0][0][0]
+np.delete(neighbors_idx_array,[0,1])
+np.delete(neighbors_distance_array,[0,1])
+
+for line in range(1,list_size):
+    neighbors_idx_array = np.concatenate((neighbors_idx_array,neighbors_list[line][1][0]),axis=None)
+    neighbors_distance_array = np.concatenate((neighbors_distance_array,neighbors_list[line][0][0]),axis = None)
+                                                                                       
+                                                                                       
+                                                                                       
+if len(neighbors_idx_array) != list_size*num_neighbors:
+    print ("ERROR: Check array size.")                                                                                       
+    
+#temos agora um array unidimensional com os indices dos clientes recomendados
+
+
+print (neighbors_distance_array[0])
+
+dicio = {}
+
+for idx,ind in zip(neighbors_idx_array, range(len(neighbors_idx_array))):
+    dicio[ind] = (portfolio_empresa3.iloc[int(ind/qtd_neighbors)].name, mercado_codenation_filtro1.iloc[idx].name, (neighbors_distance_array[ind]))
+    
+    
+neig_df = pd.DataFrame.from_dict(dicio,orient='index')   
+neig_df.rename(columns={0:'id_origin',1:'id',2:'distance'},inplace=True)
+neig_df.set_index('id',inplace=True)
+
+sugestoes = neig_df.merge(mercado_codenation,how='inner',left_index=True,right_index=True)
+
+sugestoes_filtrada = sugestoes.merge(COMP_portfolio_empresa3,indicator='i', how='left',left_index=True,right_index=True).query('i == "left_only"').drop('i',1)
 
 print ("--------------------------------------------------------------------------")
 print ("Procurando mais clientes para o portfolio 1 - OK")
@@ -207,7 +280,7 @@ print ("Resetar indexes - OK")
 
 print ("--------------------------------------------------------------------------")
 print ("Exportar csv - OK")
-#portfolio_empresa1.to_csv('porfolio_empresa1.csv')
+sugestoes_filtrada.to_csv('sugestoes_filtrada3.csv')
 #mercado_codenation.to_csv('mercado_codenation.csv')
 
 print ("--------------------------------------------------------------------------")
