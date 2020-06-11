@@ -2,11 +2,12 @@
 """
 Created on Sat Apr 11 11:51:27 2020
 
-O objetivo deste produto é fornecer um serviço automatizado que recomenda leads para um
+O objetivo deste projeto é fornecer um serviço automatizado que recomenda leads para um
 usuário dado sua atual lista de clientes (Portfólio).
 
-Vamos então utilizar os 3 portfolios que temos para recomendar empresas do MERCADO.
-Para cada empresa/portfolio, vamos ler os dados, e identificar na tabela mercado novas oportunidades.
+Vamos então utilizar os 3 portfolios que temos para recomendar outras empresas do MERCADO.
+
+Para cada empresa/portfolio, após o modelo treinado, vamos ler os respectivos dados e identificar na tabela MERCADO novas oportunidades.
 
 @author: Armstrong
 """
@@ -46,8 +47,11 @@ portfolio2_codenation = pd.read_csv('E:/codenation/dados/estaticos_portfolio2.cs
 portfolio3_codenation = pd.read_csv('E:/codenation/dados/estaticos_portfolio3.csv')
 mercado_codenation = pd.read_csv('E:/codenation/dados/estaticos_market.csv/estaticos_market.csv')
 
-#filtrando só o que nos interessa para fazer o merge depois - apenas esta tem os dados completos
+#guardando os ids para utilizarmos no final (excluir sugestões que já existem)
 portfolio1_codenation = portfolio1_codenation.filter(['id'])
+portfolio2_codenation = portfolio2_codenation.filter(['id'])
+portfolio3_codenation = portfolio3_codenation.filter(['id'])
+
 
 #MERGE
 print ("--------------------------------------------------------------------------")
@@ -57,16 +61,11 @@ portfolio_empresa1 = portfolio1_codenation['id']
 portfolio_empresa2 = portfolio2_codenation['id']
 portfolio_empresa3 = portfolio3_codenation['id']
 
-#salvando as tabelas pra eu comparar:
-COMP_portfolio_empresa1 = pd.merge(portfolio1_codenation, mercado_codenation, on='id')
-COMP_portfolio_empresa2 = pd.merge(portfolio2_codenation, mercado_codenation, on='id')
-COMP_portfolio_empresa3 = pd.merge(portfolio3_codenation, mercado_codenation, on='id')
 
-
-#retirei primeiro as colunas que não tem a menor lógica com o que buscamos. Fiz manualmente
+#retirei primeiro as colunas que não tem a menor lógica com o que buscamos. Fiz manualmente analisando as tabelas e com o panda profile
 #retiramos algumas colunas onde já existem outras colunas que foram desmembradas em categorias como: nu_meses_rescencia','idade_empresa_anos
 
-#analise dos dados
+#analise dos dados - feita uma vez apenas
 #profile = ProfileReport(mercado_codenation, title='Leads')
 #profile.to_file("your_report2geral.html")
 
@@ -92,9 +91,7 @@ mercado_codenation.drop(columns=[
 'qt_alteracao_socio_180d'],axis=1,inplace=True)
 
 
-
-
-#removendo colunas que estão completamente sem valores. update: < 1% de valores faltantes 
+#removendo colunas que estão completamente sem valores. < 1% de valores faltantes 
 print ("--------------------------------------------------------------------------")
 print ("Filtra dados das planilhas que tenha colunas com menos de 1% de miss - OK")
 
@@ -144,18 +141,6 @@ print (mercado_codenation_filtro1.dtypes.unique().size)
 print (mercado_codenation_filtro1.dtypes.unique())
 print (mercado_codenation_filtro1.dtypes)
 
-#https://www.linkedin.com/pulse/machine-learning-marketing-como-aumentar-efici%C3%AAncia-do-gouveia-rocha/
-#print ("--------------------------------------------------------------------------")
-#print ("Verificando a correlação entre os campos: .corr()/ - OK")
-
-#Using Pearson Correlation
-#plt.figure(figsize=(12,10))
-#cor = mercado_codenation_filtro1.corr()
-#sns.heatmap(cor, annot=True, cmap=plt.cm.Reds)
-#plt.show()
-
-
-
 
 
 #transformando com getdummies os dados texto em numerico
@@ -181,18 +166,12 @@ mercado_codenation_filtro1 = pd.concat([pd.get_dummies(mercado_codenation_filtro
 
 
 #merge já com dummies
-
-#complemento dos dados-------------------------------------------------------------------------------
 #complementa dados das tabelas de portfolio a partir da tabela de mercado usando para isso o campo ID
 print ("--------------------------------------------------------------------------")
 print ("Complementa os dados das empresas de portfolio - Faz um merge pelo ID - OK")
 portfolio_empresa1 = pd.merge(portfolio_empresa1, mercado_codenation_filtro1, on='id')
 portfolio_empresa2 = pd.merge(portfolio_empresa2, mercado_codenation_filtro1, on='id')
 portfolio_empresa3 = pd.merge(portfolio_empresa3, mercado_codenation_filtro1, on='id')
-
-
-
-
 
 
 #confere se ficaram idêntica no número de colunas
@@ -202,8 +181,6 @@ print (portfolio_empresa1.shape)
 print (portfolio_empresa2.shape)
 print (portfolio_empresa3.shape)
 print (mercado_codenation_filtro1.shape)
-
-
 
 
 print ("--------------------------------------------------------------------------")
@@ -225,7 +202,7 @@ print(nearest)
 
 #procurando por sugestões
 print ("--------------------------------------------------------------------------")
-print ("Procurando por sugestoes - OK")
+print ("Procurando por sugestoes para o portfolio 3 - OK")
 
 
 neighbors_list = {}
@@ -261,26 +238,28 @@ dicio = {}
 for idx,ind in zip(neighbors_idx_array, range(len(neighbors_idx_array))):
     dicio[ind] = (portfolio_empresa3.iloc[int(ind/qtd_neighbors)].name, mercado_codenation_filtro1.iloc[idx].name, (neighbors_distance_array[ind]))
     
-    
+
+#recupera os indices das sugestões    
 neig_df = pd.DataFrame.from_dict(dicio,orient='index')   
 neig_df.rename(columns={0:'id_origin',1:'id',2:'distance'},inplace=True)
 neig_df.set_index('id',inplace=True)
 
+
+#faz o merge com a tabela inicial para montar os dados a serem entregues
 sugestoes = neig_df.merge(mercado_codenation,how='inner',left_index=True,right_index=True)
 
-sugestoes_filtrada = sugestoes.merge(COMP_portfolio_empresa3,indicator='i', how='left',left_index=True,right_index=True).query('i == "left_only"').drop('i',1)
+#remove as duplicadas
+sugestoes.drop_duplicates(subset ="id",keep = False, inplace = True)
 
-print ("--------------------------------------------------------------------------")
-print ("Procurando mais clientes para o portfolio 1 - OK")
+#remove as que já são clientes e deixa só as novas indicações
+mergedStuff = pd.merge(sugestoes, portfolio3_codenation , on=['id'], how='inner')
+sugestoes_finais = sugestoes.merge(mergedStuff['id'],left_on='id', right_on='id',how='left',indicator='i').query('i == "left_only"')
+sugestoes_finais.drop(columns=['i'],inplace=True)
 
-print ("--------------------------------------------------------------------------")
-print ("Resetar indexes - OK")
-#portfolio_empresa1.reset_index()
-#mercado_codenation.reset_index()
 
 print ("--------------------------------------------------------------------------")
 print ("Exportar csv - OK")
-sugestoes_filtrada.to_csv('sugestoes_filtrada3.csv')
+sugestoes_finais.to_csv('sugestoes_finais.csv')
 #mercado_codenation.to_csv('mercado_codenation.csv')
 
 print ("--------------------------------------------------------------------------")
